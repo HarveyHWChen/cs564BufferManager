@@ -42,7 +42,10 @@ BufMgr::BufMgr(const int bufs)
 
 
 BufMgr::~BufMgr() {
-	// TODO: Implement this method by looking at the description in the writeup.
+  // TODO: Implement this method by looking at the description in the writeup.
+  delete[] bufTable;
+  delete[] bufpool;
+  delete[] bufTable;
 }
 
 
