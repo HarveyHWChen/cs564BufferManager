@@ -45,6 +45,14 @@ BufMgr::BufMgr(const int bufs)
  */
 BufMgr::~BufMgr() {
   // TODO: Implement this method by looking at the description in the writeup.
+  for(int i = 0; i < numBufs; i++){
+    BufDesc bufEntry = bufTable[i];
+    if(bufEntry.dirty){
+      // flush this page to disk
+      int frameNo = bufEntry.frameNo;
+      bufEntry.file->writePage(bufEntry.pageNo, bufPool + frameNo);
+    }
+  }
   delete[] bufTable;
   delete[] bufPool;
   delete hashTable;
@@ -58,8 +66,9 @@ BufMgr::~BufMgr() {
  * @return UNIXERR if the call to the I/O layer returned an error when a dirty page was being written to disk 
  */
 const Status BufMgr::allocBuf(int & frame) {
-	// TODO: Implement this method by looking at the description in the writeup.
-	return OK;
+  // TODO: Implement this method by looking at the description in the writeup.
+  
+  return OK;
 }
 
 /**
