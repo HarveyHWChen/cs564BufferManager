@@ -15,6 +15,11 @@
 		     } \
                    }
 
+#define CHKSTAT(c) { if(c != OK) { \
+                          return c; \
+                        } \
+                      }
+
 //----------------------------------------
 // Constructor of the class BufMgr
 //----------------------------------------
@@ -66,8 +71,40 @@ BufMgr::~BufMgr() {
  * @return UNIXERR if the call to the I/O layer returned an error when a dirty page was being written to disk 
  */
 const Status BufMgr::allocBuf(int & frame) {
-  // TODO: Implement this method by looking at the description in the writeup.
-  
+  bool allPined = true;
+  while(true){
+    advanceClock();
+    BufDesc frameInfo = bufTable[clockHand];
+    if(frameInfo.valid){
+      if(frameInfo.refbit){
+	frameInfo.refbit = false;
+	continue;
+      } else {
+	if(frameInfo.pinCnt > 0){
+	  continue;
+	} else {
+	  allPined = false;
+	  if(frameInfo.dirty){
+	    // flush page to disk
+	    Status s = frameInfo.file->writePage(frameInfo.pageNo, bufPool + frameInfo.frameNo);
+	    CHKSTAT(s); // UNIXERR
+	  }
+	  break;
+	}
+      }
+    } else {
+      allPined = false;
+      break;
+    }
+  }
+  if(allPined){
+    return BUFFEREXCEEDED;
+  } else {
+    // set frame
+    bufTable[clockHand].Clear();
+    frame = bufTable[clockHand].frameNo;
+  }
+
   return OK;
 }
 
@@ -79,8 +116,30 @@ const Status BufMgr::allocBuf(int & frame) {
  * @return HASHTBLERROR if a hash table error occured
  */	
 const Status BufMgr::readPage(File* file, const int PageNo, Page*& page) {
-	// TODO: Implement this method by looking at the description in the writeup.
-	return OK;
+  int frameNo = -1;  
+  Status s = hashTable->lookup(file, PageNo, frameNo);
+  if(s == OK){
+    // it's in the buffer pool
+    BufDesc frame = bufTable[frameNo];
+    frame.refbit = true;
+    frame.pinCnt++;
+    //page = &frame.frameNo;
+    page = &(bufPool[frame.frameNo]);
+  } else {
+    // it's not in the buffer pool
+    s = allocBuf(frameNo);
+    //if(statues != OK) return statues;
+    CHKSTAT(s); // BUFFEREXCEEDED, UNIXERR
+    Page newPage;
+    s = file->readPage(PageNo, &newPage);
+    //if(statues != OK) return statues;
+    CHKSTAT(s); // UNIXERR
+    s = hashTable->insert(file, PageNo, frameNo);
+    CHKSTAT(s); // HASHTBLERR
+    bufTable[frameNo].Set(file, PageNo);
+    page = &(bufPool[frameNo]);
+  }
+  return OK;
 }
 
 /**
@@ -92,8 +151,20 @@ const Status BufMgr::readPage(File* file, const int PageNo, Page*& page) {
  */
 const Status BufMgr::unPinPage(File* file, const int PageNo, 
 			       const bool dirty) {
-	// TODO: Implement this method by looking at the description in the writeup.
-	return OK;
+  int frameNo = -1;
+  Status s = hashTable->lookup(file, PageNo, frameNo);
+  CHKSTAT(s); // HASHNOTFOUND
+  BufDesc frame = bufTable[frameNo];
+  if(dirty){
+    frame.dirty = true;
+  }
+  if(frame.pinCnt <= 0){
+    return PAGENOTPINNED;
+  } else {
+    frame.pinCnt--;
+    if(frame.pinCnt < 0) frame.pinCnt = 0;
+  }
+  return OK;
 }
 
 /**
@@ -106,8 +177,11 @@ const Status BufMgr::unPinPage(File* file, const int PageNo,
  * @return HASHTBLERROR if a hash table error occurred
  */
 const Status BufMgr::allocPage(File* file, int& pageNo, Page*& page)  {
-	// TODO: Implement this method by looking at the description in the writeup.
-	return OK;
+  Status s = file->allocatePage(pageNo);
+  CHKSTAT(s); // UNIXERR
+  s = readPage(file, pageNo, page);
+  CHKSTAT(s); // UNIXERR, BUFFEREXCEEDED, HASHTBLERR
+  return OK;
 }
 
 /**
@@ -115,8 +189,16 @@ const Status BufMgr::allocPage(File* file, int& pageNo, Page*& page)  {
  * @return the status of the call to dispose the page in the file.
  */
 const Status BufMgr::disposePage(File* file, const int pageNo) {
-	// TODO: Implement this method by looking at the description in the writeup.
-	return OK;
+  int frameNo = -1;
+  Status s = hashTable->lookup(file, pageNo, frameNo);
+  if(s == OK){
+    BufDesc frame = bufTable[frameNo];
+    frame.Clear();
+    s = hashTable->remove(file, pageNo);
+    CHKSTAT(s); // HASHTBLERR
+  }
+  s = file->disposePage(pageNo);
+  return s;
 }
 
 /**
@@ -128,8 +210,26 @@ const Status BufMgr::disposePage(File* file, const int pageNo) {
  * @return PAGEPINNED if some page of the file is pinned
  */
 const Status BufMgr::flushFile(const File* file) {
-	// TODO: Implement this method by looking at the description in the writeup.
-	return OK;
+  File* pFile = NULL;
+  memcpy(pFile, file, sizeof(File*));
+  bool pinned = false;
+  for(int i = 0; i < numBufs; i++){
+    BufDesc frame = bufTable[i];
+    if(frame.file == pFile){
+      if(frame.pinCnt > 0) pinned = true;
+      if(frame.dirty){
+	// flush to disk
+	Status s = pFile->writePage(frame.pageNo, bufPool + i);
+	CHKSTAT(s); // UNIXERR
+	frame.dirty = false;
+      }
+      Status s = hashTable->remove(pFile, frame.pageNo);
+      CHKSTAT(s);
+      frame.Clear();
+    }
+  }
+  if(pinned) return PAGEPINNED;
+  return OK;
 }
 
 
