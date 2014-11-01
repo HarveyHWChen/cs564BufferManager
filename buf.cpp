@@ -72,21 +72,22 @@ BufMgr::~BufMgr() {
  */
 const Status BufMgr::allocBuf(int & frame) {
   bool allPined = true;
+  //unsigned int startHand = clockHand;
   while(true){
     advanceClock();
-    BufDesc frameInfo = bufTable[clockHand];
-    if(frameInfo.valid){
-      if(frameInfo.refbit){
-	frameInfo.refbit = false;
+    BufDesc* frameInfo = &bufTable[clockHand];
+    if(frameInfo->valid){
+      if(frameInfo->refbit){
+	frameInfo->refbit = false;
 	continue;
       } else {
-	if(frameInfo.pinCnt > 0){
+	if(frameInfo->pinCnt > 0){
 	  continue;
 	} else {
 	  allPined = false;
-	  if(frameInfo.dirty){
+	  if(frameInfo->dirty){
 	    // flush page to disk
-	    Status s = frameInfo.file->writePage(frameInfo.pageNo, bufPool + frameInfo.frameNo);
+	    Status s = frameInfo->file->writePage(frameInfo->pageNo, bufPool + frameInfo->frameNo);
 	    CHKSTAT(s); // UNIXERR
 	  }
 	  break;
@@ -96,7 +97,7 @@ const Status BufMgr::allocBuf(int & frame) {
       allPined = false;
       break;
     }
-  }
+  } //while(clockHand != startHand);
   if(allPined){
     return BUFFEREXCEEDED;
   } else {
@@ -120,11 +121,13 @@ const Status BufMgr::readPage(File* file, const int PageNo, Page*& page) {
   Status s = hashTable->lookup(file, PageNo, frameNo);
   if(s == OK){
     // it's in the buffer pool
-    BufDesc frame = bufTable[frameNo];
-    frame.refbit = true;
-    frame.pinCnt++;
+    BufDesc* frame = &bufTable[frameNo];
+    frame->refbit = true;
+    frame->pinCnt++;
     //page = &frame.frameNo;
-    page = &(bufPool[frame.frameNo]);
+    //page = &(bufPool[frame->frameNo]);
+    // THINK ABOUT THIS PART
+    memcpy(page, &(bufPool[frame->frameNo]), sizeof(page));
   } else {
     // it's not in the buffer pool
     s = allocBuf(frameNo);
@@ -137,7 +140,9 @@ const Status BufMgr::readPage(File* file, const int PageNo, Page*& page) {
     s = hashTable->insert(file, PageNo, frameNo);
     CHKSTAT(s); // HASHTBLERR
     bufTable[frameNo].Set(file, PageNo);
-    page = &(bufPool[frameNo]);
+    //page = &(bufPool[frameNo]);
+    // THINK ABOUT THIS PART
+    memcpy(page, &(bufPool[frameNo]), sizeof(page));
   }
   return OK;
 }
@@ -154,15 +159,15 @@ const Status BufMgr::unPinPage(File* file, const int PageNo,
   int frameNo = -1;
   Status s = hashTable->lookup(file, PageNo, frameNo);
   CHKSTAT(s); // HASHNOTFOUND
-  BufDesc frame = bufTable[frameNo];
+  BufDesc* frame = &bufTable[frameNo];
   if(dirty){
-    frame.dirty = true;
+    frame->dirty = true;
   }
-  if(frame.pinCnt <= 0){
+  if(frame->pinCnt <= 0){
     return PAGENOTPINNED;
   } else {
-    frame.pinCnt--;
-    if(frame.pinCnt < 0) frame.pinCnt = 0;
+    frame->pinCnt--;
+    if(frame->pinCnt < 0) frame->pinCnt = 0;
   }
   return OK;
 }
@@ -192,8 +197,8 @@ const Status BufMgr::disposePage(File* file, const int pageNo) {
   int frameNo = -1;
   Status s = hashTable->lookup(file, pageNo, frameNo);
   if(s == OK){
-    BufDesc frame = bufTable[frameNo];
-    frame.Clear();
+    BufDesc* frame = &bufTable[frameNo];
+    frame->Clear();
     s = hashTable->remove(file, pageNo);
     CHKSTAT(s); // HASHTBLERR
   }
@@ -214,18 +219,18 @@ const Status BufMgr::flushFile(const File* file) {
   memcpy(pFile, file, sizeof(File*));
   bool pinned = false;
   for(int i = 0; i < numBufs; i++){
-    BufDesc frame = bufTable[i];
-    if(frame.file == pFile){
-      if(frame.pinCnt > 0) pinned = true;
-      if(frame.dirty){
+    BufDesc* frame = &bufTable[i];
+    if(frame->file == pFile){
+      if(frame->pinCnt > 0) pinned = true;
+      if(frame->dirty){
 	// flush to disk
-	Status s = pFile->writePage(frame.pageNo, bufPool + i);
+	Status s = pFile->writePage(frame->pageNo, bufPool + i);
 	CHKSTAT(s); // UNIXERR
-	frame.dirty = false;
+	frame->dirty = false;
       }
-      Status s = hashTable->remove(pFile, frame.pageNo);
+      Status s = hashTable->remove(pFile, frame->pageNo);
       CHKSTAT(s);
-      frame.Clear();
+      frame->Clear();
     }
   }
   if(pinned) return PAGEPINNED;
