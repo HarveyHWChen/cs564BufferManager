@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include "page.h"
 #include "buf.h"
+#include <vector>
 
 #define ASSERT(c)  { if (!(c)) { \
 		       cerr << "At line " << __LINE__ << ":" << endl << "  "; \
@@ -51,11 +52,11 @@ BufMgr::BufMgr(const int bufs)
 BufMgr::~BufMgr() {
   // TODO: Implement this method by looking at the description in the writeup.
   for(int i = 0; i < numBufs; i++){
-    BufDesc bufEntry = bufTable[i];
-    if(bufEntry.dirty){
+    BufDesc* frame = &bufTable[i];
+    if(frame->dirty){
       // flush this page to disk
-      int frameNo = bufEntry.frameNo;
-      bufEntry.file->writePage(bufEntry.pageNo, bufPool + frameNo);
+      int frameNo = frame->frameNo;
+      frame->file->writePage(frame->pageNo, bufPool + frameNo);
     }
   }
   delete[] bufTable;
@@ -219,43 +220,47 @@ const Status BufMgr::disposePage(File* file, const int pageNo) {
  * @return PAGEPINNED if some page of the file is pinned
  */
 const Status BufMgr::flushFile(const File* file) {
+  // first check if all pages of this file are unpinned
   File* pFile = const_cast<File*>(file);
-  //memcpy(pFile, file, sizeof(File*));
-  bool pinned = false;
+  std::vector<BufDesc*> frames;
   for(int i = 0; i < numBufs; i++){
     BufDesc* frame = &bufTable[i];
     if(frame->file == pFile){
-      if(frame->pinCnt > 0) pinned = true;
-      if(frame->dirty){
-	// flush to disk
-	Status s = pFile->writePage(frame->pageNo, bufPool + i);
-	CHKSTAT(s); // UNIXERR
-	frame->dirty = false;
-      }
-      Status s = hashTable->remove(pFile, frame->pageNo);
-      CHKSTAT(s);
-      frame->Clear();
+      frames.push_back(frame);
     }
+    if(frame->pinCnt > 0) return PAGEPINNED;
   }
-  if(pinned) return PAGEPINNED;
+  //memcpy(pFile, file, sizeof(File*));
+  for(unsigned int i = 0; i < frames.size(); i++){
+    BufDesc* pFrame = frames[i];
+    if(pFrame->dirty){
+      // flush to disk
+      Status s = pFile->writePage(pFrame->pageNo, bufPool + pFrame->frameNo);
+      CHKSTAT(s);
+      pFrame->dirty = false;
+    }
+    Status s = hashTable->remove(pFile, pFrame->pageNo);
+    CHKSTAT(s);
+    pFrame->Clear();
+  }
   return OK;
 }
 
 
-void BufMgr::printSelf(void) 
-{
+  void BufMgr::printSelf(void) 
+  {
     BufDesc* tmpbuf;
   
     cout << endl << "Print buffer...\n";
     for (int i=0; i<numBufs; i++) {
-        tmpbuf = &(bufTable[i]);
-        cout << i << "\t" << (char*)(&bufPool[i]) 
-             << "\tpinCnt: " << tmpbuf->pinCnt;
+      tmpbuf = &(bufTable[i]);
+      cout << i << "\t" << (char*)(&bufPool[i]) 
+	   << "\tpinCnt: " << tmpbuf->pinCnt;
     
-        if (tmpbuf->valid == true)
-            cout << "\tvalid\n";
-        cout << endl;
+      if (tmpbuf->valid == true)
+	cout << "\tvalid\n";
+      cout << endl;
     };
-}
+  }
 
 
