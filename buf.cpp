@@ -71,9 +71,18 @@ BufMgr::~BufMgr() {
  * @return UNIXERR if the call to the I/O layer returned an error when a dirty page was being written to disk 
  */
 const Status BufMgr::allocBuf(int & frame) {
-  int pinned = 0;
+  // first check if all pinned
+  bool unpinned = false;
+  for(int i = 0; i < numBufs; i++){
+    if(bufTable[i].pinCnt <= 0){
+      // found an unpinned frame
+      unpinned = true;
+      break;
+    }
+  }
+  if(unpinned == false) return BUFFEREXCEEDED;
   //unsigned int startHand = clockHand;
-  while(pinned <= numBufs){
+  while(true){
     advanceClock();
     BufDesc* frameInfo = &bufTable[clockHand];
     if(frameInfo->valid){
@@ -82,7 +91,6 @@ const Status BufMgr::allocBuf(int & frame) {
 	continue;
       } else {
 	if(frameInfo->pinCnt > 0){
-	  pinned++;
 	  continue;
 	} else {
 	  if(frameInfo->dirty){
@@ -97,16 +105,12 @@ const Status BufMgr::allocBuf(int & frame) {
       break;
     }
   } //while(clockHand != startHand);
-  if(pinned == numBufs){
-    return BUFFEREXCEEDED;
-  } else {
     // set frame
-    if(bufTable[clockHand].valid){
-      hashTable->remove(bufTable[clockHand].file, bufTable[clockHand].pageNo);
-    }
-    bufTable[clockHand].Clear();
-    frame = bufTable[clockHand].frameNo;
+  if(bufTable[clockHand].valid){
+    hashTable->remove(bufTable[clockHand].file, bufTable[clockHand].pageNo);
   }
+  bufTable[clockHand].Clear();
+  frame = bufTable[clockHand].frameNo;
 
   return OK;
 }
