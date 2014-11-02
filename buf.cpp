@@ -71,9 +71,9 @@ BufMgr::~BufMgr() {
  * @return UNIXERR if the call to the I/O layer returned an error when a dirty page was being written to disk 
  */
 const Status BufMgr::allocBuf(int & frame) {
-  bool allPined = true;
+  int pinned = 0;
   //unsigned int startHand = clockHand;
-  while(true){
+  while(pinned <= numBufs){
     advanceClock();
     BufDesc* frameInfo = &bufTable[clockHand];
     if(frameInfo->valid){
@@ -82,9 +82,9 @@ const Status BufMgr::allocBuf(int & frame) {
 	continue;
       } else {
 	if(frameInfo->pinCnt > 0){
+	  pinned++;
 	  continue;
 	} else {
-	  allPined = false;
 	  if(frameInfo->dirty){
 	    // flush page to disk
 	    Status s = frameInfo->file->writePage(frameInfo->pageNo, bufPool + frameInfo->frameNo);
@@ -94,14 +94,16 @@ const Status BufMgr::allocBuf(int & frame) {
 	}
       }
     } else {
-      allPined = false;
       break;
     }
   } //while(clockHand != startHand);
-  if(allPined){
+  if(pinned == numBufs){
     return BUFFEREXCEEDED;
   } else {
     // set frame
+    if(bufTable[clockHand].valid){
+      hashTable->remove(bufTable[clockHand].file, bufTable[clockHand].pageNo);
+    }
     bufTable[clockHand].Clear();
     frame = bufTable[clockHand].frameNo;
   }
@@ -125,24 +127,22 @@ const Status BufMgr::readPage(File* file, const int PageNo, Page*& page) {
     frame->refbit = true;
     frame->pinCnt++;
     //page = &frame.frameNo;
-    //page = &(bufPool[frame->frameNo]);
-    // THINK ABOUT THIS PART
-    memcpy(page, &(bufPool[frame->frameNo]), sizeof(page));
+    page = &(bufPool[frame->frameNo]);
+    //memcpy(page, &(bufPool[frame->frameNo]), sizeof(Page));
   } else {
     // it's not in the buffer pool
     s = allocBuf(frameNo);
     //if(statues != OK) return statues;
     CHKSTAT(s); // BUFFEREXCEEDED, UNIXERR
-    Page newPage;
-    s = file->readPage(PageNo, &newPage);
+    Page* pPage = &bufPool[frameNo];
+    s = file->readPage(PageNo, pPage);
     //if(statues != OK) return statues;
     CHKSTAT(s); // UNIXERR
     s = hashTable->insert(file, PageNo, frameNo);
     CHKSTAT(s); // HASHTBLERR
     bufTable[frameNo].Set(file, PageNo);
-    //page = &(bufPool[frameNo]);
-    // THINK ABOUT THIS PART
-    memcpy(page, &(bufPool[frameNo]), sizeof(page));
+    page = &(bufPool[frameNo]);
+    //memcpy(page, &(bufPool[frameNo]), sizeof(Page));
   }
   return OK;
 }
@@ -215,8 +215,8 @@ const Status BufMgr::disposePage(File* file, const int pageNo) {
  * @return PAGEPINNED if some page of the file is pinned
  */
 const Status BufMgr::flushFile(const File* file) {
-  File* pFile = NULL;
-  memcpy(pFile, file, sizeof(File*));
+  File* pFile = const_cast<File*>(file);
+  //memcpy(pFile, file, sizeof(File*));
   bool pinned = false;
   for(int i = 0; i < numBufs; i++){
     BufDesc* frame = &bufTable[i];
