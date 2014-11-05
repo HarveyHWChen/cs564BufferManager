@@ -65,6 +65,7 @@ BufMgr::BufMgr(const int bufs)
  */
 BufMgr::~BufMgr() 
 {
+  // flush pages inside the buffer pool if necessary
   for(int i = 0; i < numBufs; i++){
     BufDesc* frame = &bufTable[i];
     if(frame->dirty){
@@ -73,6 +74,7 @@ BufMgr::~BufMgr()
       frame->file->writePage(frame->pageNo, bufPool + frameNo);
     }
   }
+  // clean the allocated memory
   delete[] bufTable;
   delete[] bufPool;
   delete hashTable;
@@ -154,7 +156,6 @@ const Status BufMgr::readPage(File* file, const int PageNo, Page*& page)
   } else {
     // it's not in the buffer pool
     s = allocBuf(frameNo);
-    //if(statues != OK) return statues;
     CHKSTAT(s); // BUFFEREXCEEDED, UNIXERR
     Page* pPage = &bufPool[frameNo];
     s = file->readPage(PageNo, pPage);
