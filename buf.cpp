@@ -1,6 +1,17 @@
-/************
- *
- ************/
+/**
+  Program Title: Buffer Manager
+
+  File Purpose: The heart of the buffer manager. Implement clock algorithm, reading page,
+                unpin page, allocate page, dispose page and flush file. 
+
+  Semester: CS564 Fall 2014
+  
+  Authors & ID: Hanwen Chen(9069978907);
+                Qiaoya Cui (9070006128);
+
+  Lecture's Name: Jeff Naughton
+ */
+
 #include <memory.h>
 #include <unistd.h>
 #include <errno.h>
@@ -139,9 +150,7 @@ const Status BufMgr::readPage(File* file, const int PageNo, Page*& page)
     BufDesc* frame = &bufTable[frameNo];
     frame->refbit = true;
     frame->pinCnt++;
-    //page = &frame.frameNo;
     page = &(bufPool[frame->frameNo]);
-    //memcpy(page, &(bufPool[frame->frameNo]), sizeof(Page));
   } else {
     // it's not in the buffer pool
     s = allocBuf(frameNo);
@@ -155,7 +164,6 @@ const Status BufMgr::readPage(File* file, const int PageNo, Page*& page)
     CHKSTAT(s); // HASHTBLERR
     bufTable[frameNo].Set(file, PageNo);
     page = &(bufPool[frameNo]);
-    //memcpy(page, &(bufPool[frameNo]), sizeof(Page));
   }
   return OK;
 }
@@ -224,7 +232,6 @@ const Status BufMgr::disposePage(File* file, const int pageNo)
     BufDesc* frame = &bufTable[frameNo];
     frame->Clear();
     hashTable->remove(file, pageNo);
-    //CHKSTAT(s); // HASHTBLERR
   }
   s = file->disposePage(pageNo);
   return s;
@@ -251,7 +258,6 @@ const Status BufMgr::flushFile(const File* file)
     }
     if(frame->pinCnt > 0) return PAGEPINNED;
   }
-  //memcpy(pFile, file, sizeof(File*));
   for(unsigned int i = 0; i < frames.size(); i++){
     BufDesc* pFrame = frames[i];
     if(pFrame->dirty){
